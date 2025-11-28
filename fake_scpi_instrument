@@ -1,0 +1,181 @@
+import pyvisa
+import socket
+import numpy as np
+import pandas as pd
+
+#SAVE VERSION WITHOUT SYMPY> VERSION CONTROL
+
+#Simulated multimeter
+
+HOST = '127.0.0.1'   #Local Host
+PORT = 5025          #standard SCPI TCP/IP Port
+mtype = "none"      #global mode flag
+
+#Ask for R,L,C,f,V_in, and Comp_select(Comp_select is in a while loop. If End, ends program)
+R = 50     #Ohms
+L = 0.3    #Henries
+C = 15e-6  #Farads
+f = 50     #Hertz
+V_dc = 25  #Volts
+Vp = 10
+t = np.linspace(0,0.01,10000) #0 to 10 ms
+V_in = 5 + Vp*np.sin(2*np.pi*f*t)
+#Theoretical Values (when connected to multimeter, noise will be added and multimeter "measurement" will send)
+#AC
+Z_R = R
+Z_L = 2*np.pi*f*L
+Z_C = 1/(2*np.pi*f*C)
+Z_tot = Z_R+Z_L+Z_C
+I = V_in/Z_tot
+I_real = np.real(I)
+I_dc = np.mean(I_real)
+I_ac_signal = I_real - I_dc  # Subtract the DC component
+I_ac = np.sqrt(np.mean(I_ac_signal**2))  # Calculate RMS of the AC part
+V_C = abs(Z_C*I)/np.sqrt(2)
+V_L = abs(Z_L*I)/np.sqrt(2)
+V_R = Z_R*I
+Comp_select = C           #choose R,L, or C. Use if statement within function section for calculations
+#DC
+R_R = R
+R_C = np.inf
+R_L = 0
+Vdc_R = 0 #DC blocked by cap
+Vdc_L = 0
+Vdc_C = V_dc
+
+noise = np.random.normal(0, 0.01)  # simulate small measurement noise
+resolution = 0.001  # simulate limited resolution (1 mV steps)
+
+
+def meas_vdc_active():
+    global mtype
+    mtype = "VDC_ON"
+    return "MEAS MODE SET TO VDC\n"
+def meas_vdc():
+    global mtype, Comp_select, V_dc, noise
+    if mtype == "VDC_ON":
+        if Comp_select == R or Comp_select == L:
+            result = 0 + noise
+        elif Comp_select == C:
+            result = V_dc + noise
+        else:
+            result ="ERROR: INVALID COMPONENT\n"
+            return result
+    else:
+        result = "ERROR: MODE NOT SET TO VDC\n"
+        return result
+    quantized = round(result / resolution) * resolution
+    meas_vdc_res = f"{quantized:.3f} V (DC)\n"
+    return meas_vdc_res
+def meas_vac_active():
+    global mtype
+    mtype = "VAC_ON"
+    return "MEAS MODE SET TO VAC\n"
+def meas_vac():
+    global mtype, Comp_select, V_R, V_C, V_L, noise
+    if mtype == "VAC_ON":
+        if Comp_select == R:
+            result = V_R+noise
+        elif Comp_select == C:
+            result = V_C+noise
+        elif Comp_select == L:
+            result = V_L+noise
+        else:
+            result = "ERROR: INVALID COMPONENT\n"
+            return result
+    else:
+        result = "ERROR: MODE NOT SET TO VAC\n"
+        return result
+    quantized = round(result / resolution) * resolution
+    meas_vdc_res = f"{quantized:.3f} V (RMS)\n"
+    return meas_vdc_res
+def meas_idc_active():
+    global mtype
+    mtype = "IDC_ON"
+    return "MEAS MODE SET TO IDC\n"
+def meas_idc():
+    global mtype, resolution, noise, I_dc
+    if mtype == "IDC_ON":
+        result = I_dc+noise
+    else:
+        result = "ERROR: MODE NOT SET TO IDC\n"
+        return result
+    quantized = round(result / resolution) * resolution
+    meas_idc_res = f"{quantized:.3f} A (DC)\n"
+    return meas_idc_res
+def meas_iac_active():
+    global mtype
+    mtype = "IAC_ON"
+    return "MEAS MODE SET TO IAC\n"
+def meas_iac():
+    global mtype, resolution, noise, I_ac
+    if mtype == "IAC_ON":
+        result = I_ac+noise
+    else:
+        result = "ERROR: MODE NOT SET TO IAC\n"
+        return result
+    quantized = round(result / resolution) * resolution
+    meas_iac_res = f"{quantized:.3f} A (RMS)\n"
+    return meas_iac_res
+def meas_res_active():
+    global mtype
+    mtype = "RES_ON"
+    return "MEAS MODE SET TO RES\n"
+def meas_res():
+    global mtype, Comp_select, resolution, noise
+    if mtype == "RES_ON":
+        if Comp_select == R or Comp_select == L:
+            result = R_R+noise
+        elif Comp_select == C:
+            result = R_C+noise
+        else:
+            result = "ERROR: INVALID COMPONENT\n"
+            return result
+    else:
+        result = "ERROR: MODE NOT SET TO RES\n"
+        return result
+    quantized = round(result / resolution) * resolution
+    meas_res_res = f"{quantized:.3f} A (RMS)\n"
+    return f"{meas_res_res} Ohms\n"
+def reset():
+    global mtype
+    mtype="VDC_ON"
+    return "SYSTEM RESET\n"
+
+#Dictionary of simulated responses to SCPI commands
+responses = {
+    '*IDN?': 'FAKE,INSTRUMENT,MODEL1234,0.1\n',
+    '*RST': reset,
+    '*CLS': 'CLEARED STATUS AND ERROR QUEUE\n',
+    'MEASU:IMM:TYP VDC': meas_vdc_active,
+    'MEASU:IMM:TYP VDC?': meas_vdc,
+    'MEASU:IMM:TYP VAC': meas_vac_active,
+    'MEASU:IMM:TYP VAC?': meas_vac,
+    'MEASU:IMM:TYP IDC': meas_idc_active,
+    'MEASU:IMM:TYP IDC?': meas_idc,
+    'MEASU:IMM:TYP IAC': meas_iac_active,
+    'MEASU:IMM:TYP IAC?': meas_iac,
+    'MEASU:IMM:TYP RES': meas_res,
+    'MEASU:IMM:TYP RES?': meas_res_active,
+}
+
+print(f"SCPI Simulator running on {HOST}:{PORT}")
+
+
+#Connection
+with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as server:
+    server.bind((HOST,PORT))
+    server.listen()
+    conn, addr = server.accept()
+    with conn:
+        print(f"Connected by {addr}")
+        while True:
+            data = conn.recv(1024)
+            if not data:
+                break
+            command = data.decode().strip()
+            print(f"Received: {command}")
+            response = responses.get(command, 'ERROR\n')
+            if callable(response):
+                response = response()
+            conn.sendall(response.encode())
