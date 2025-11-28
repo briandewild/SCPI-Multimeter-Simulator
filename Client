@@ -1,0 +1,74 @@
+import pyvisa
+import time
+import numpy as np
+
+#VERSION CONTROL
+#replace constants with user input. Write data to csv. Simulate noise. Series or parallel option
+#Make RLC values NON IDEAL. Get into some good analog math
+
+#Connect to fake_scpi_instrument.py
+rm = pyvisa.ResourceManager()
+#resources = rm.list_resources()  fake instrument will not be detected
+instr = rm.open_resource("TCPIP::127.0.0.1::5025::SOCKET")
+#Setup
+instr.write_termination = '\n'
+instr.read_termination = '\n'
+instr.timeout = 2000  # in milliseconds
+
+#Ask for R,L,C,f,V_in, and Comp_select(Comp_select is in a while loop. If End, ends program)
+R = 50     #Ohms
+L = 0.3    #Henries
+C = 15e-6  #Farads
+f = 50     #Hertz
+V_in = 25  #Volts
+
+#Theoretical Values (when connected to multimeter, noise will be added and multimeter "measurement" will send)
+Z_R = R
+Z_L = 2*np.pi*f*L*1j
+Z_C = 1/(2*np.pi*f*C*1j)
+Z_tot = Z_R+Z_L+Z_C
+I = V_in/Z_tot
+V_C = Z_C*I
+V_L = Z_L*I
+V_R = Z_R*I
+Comp_select = V_C
+
+#Test Conditions. Figure out query vs write
+idn = instr.query("*IDN?")
+print("Connected to: ",idn)
+rst = instr.query("*RST")
+print(rst)
+cls = instr.query("*CLS")
+print(cls)
+com0 = instr.query("MEASU:IMM:TYP VDC?")
+print(com0)
+com1 = instr.query("MEASU:IMM:TYP VDC")
+print(com1)
+com2 = instr.query("MEASU:IMM:TYP VDC?")
+print("Measurement:", com2)
+com3 = instr.query("MEASU:IMM:TYP IDC?")
+print(com3)
+com4 = instr.query("MEASU:IMM:TYP IDC")
+print(com4)
+com5 = instr.query("MEASU:IMM:TYP IDC?")
+print(com5)
+com6 = instr.query("MEASU:IMM:TYP VAC?")
+print(com6)
+com7 = instr.query("MEASU:IMM:TYP VAC")
+print(com7)
+com8 = instr.query("MEASU:IMM:TYP VAC?")
+print(com8)
+com9 = instr.query("MEASU:IMM:TYP IAC?")
+print(com9)
+com10 = instr.query("MEASU:IMM:TYP IAC")
+print(com10)
+com11 = instr.query("MEASU:IMM:TYP IAC?")
+print(com11)
+com12 = instr.query("MEASU:IMM:TYP RES?")
+print(com12)
+com13 = instr.query("MEASU:IMM:TYP RES")
+print(com13)
+com14 = instr.query("MEASU:IMM:TYP RES?")
+print(com14)
+
+rm.close()
